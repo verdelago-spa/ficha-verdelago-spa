@@ -508,6 +508,9 @@ const T = {
       clean_btn: "Apagar registos expirados",
       clean_done: "{n} registo(s) apagado(s).",
       clean_banner: "{n} registo(s) ultrapassaram o prazo de conservação. Pode apagá-los em Exportar.",
+      clean_prompt_title: "Dados fora do prazo",
+      clean_prompt_text: "Há {n} registo(s) que passaram o prazo de conservação. Quer apagá-los agora?",
+      clean_now: "Apagar agora", clean_later: "Mais tarde",
       search_more: "Nas fichas mais antigas, a pesquisa procura pelo início do nome, pelo início do e-mail ou pelo código do alojamento.",
       dash_note: "Totais mensais anónimos, atualizados a cada ficha. Por mês completo.",
       sig_loading: "A carregar a assinatura…",
@@ -1698,7 +1701,10 @@ function viewStaff() {
 function renderStaffBody() {
   const b = $("#s-body"); if (!b) return;
   if (!db) { b.innerHTML = `<div class="s-card"><p class="empty">${esc(ps("no_db"))}</p></div>`; return; }
-  const err = S.err ? `<p class="msg bad">${esc(S.err)}</p>` : "";
+  const ask = isMgr() && S.expired && S.expired.total && !S.cleanAsked
+    ? `<div class="s-card warn" role="alertdialog" aria-labelledby="clean-q"><h2 id="clean-q">${esc(ps("clean_prompt_title"))}</h2><p class="msg">${esc(ps("clean_prompt_text", { n: S.expired.total }))}</p><div class="exp"><button class="btn small danger" data-act="cleannow">${esc(ps("clean_now"))}</button><button class="btn small" data-act="cleanlater">${esc(ps("clean_later"))}</button></div></div>`
+    : S.cleanAsked && S.cleanMsg && S.tab !== "export" ? `<p class="msg">${S.cleanMsg}</p>` : "";
+  const err = ask + (S.err ? `<p class="msg bad">${esc(S.err)}</p>` : "");
   if (S.tab === "forms" && S.openId) b.innerHTML = err + viewDetail();
   else if (S.tab === "forms") { b.innerHTML = err + (S.listMsg ? `<p class="msg ok">${esc(S.listMsg)}</p>` : "") + `<p class="banner" id="old-banner" hidden></p><div class="s-card"><div class="s-bar"><h2>${S.listDay === localDay() ? esc(ps("today")) + " · " + esc(fmtDate(S.listDay, "pt")) : esc(ps("day_title", { date: fmtDate(S.listDay, "pt") }))}</h2><input type="search" id="s-search" placeholder="${esc(ps("search_ph"))}" value="${esc(S.search)}" aria-label="${esc(ps("search_ph"))}"></div>
       <div class="exp"><button class="btn small" data-act="dayshift" data-v="-1">${esc(ps("day_prev"))}</button><input type="date" id="list-day" value="${esc(S.listDay)}" max="${localDay()}" aria-label="${esc(ps("day_label"))}"><button class="btn small" data-act="dayshift" data-v="1"${S.listDay >= localDay() ? " disabled" : ""}>${esc(ps("day_next"))}</button>${S.listDay === localDay() ? "" : `<button class="btn small" data-act="daytoday">${esc(ps("day_today"))}</button>`}</div><div id="s-list" class="list"></div></div>`; renderList(); }
@@ -2115,7 +2121,8 @@ async function loadExpired() {
     try { out[c] = await db.collection(c).where("expireAt", "<", now).count(); } catch (_) { out[c] = 0; }
     out.total += out[c];
   }
-  S.expired = out; refreshStaff();
+  S.expired = out;
+  if (out.total && !S.cleanAsked && view === "staff" && !S.dirty && !S.noteDirty) renderStaffBody(); else refreshStaff();
 }
 async function deleteExpired() {
   S.cleanMsg = esc(ps("working")); renderStaffBody();
@@ -2133,7 +2140,8 @@ async function deleteExpired() {
     audit("act_cleanup", String(n));
   } catch (_) { S.cleanMsg = `<span class="msg bad">${esc(ps("del_err"))}</span>`; }
   S.confirmClean = false; S.rangeRows = null; S.mkRows = null; S.bdRows = null;
-  loadExpired();
+  await loadExpired();
+  if (!S.dirty && !S.noteDirty) renderStaffBody();
 }
 async function doDelete() {
   const f = formById(S.openId); if (!f || !isMgr()) return;
@@ -2428,6 +2436,8 @@ app.addEventListener("click", e => {
   else if (act === "cleanask") { S.confirmClean = true; S.cleanMsg = ""; renderStaffBody(); }
   else if (act === "cleancancel") { S.confirmClean = false; renderStaffBody(); }
   else if (act === "cleando") deleteExpired();
+  else if (act === "cleannow") { S.cleanAsked = true; deleteExpired(); }
+  else if (act === "cleanlater") { S.cleanAsked = true; renderStaffBody(); }
   else if (act === "logout") logout();
   else if (act === "tab") { if (S.dirty && S.tab === v) return; S.tab = v; S.openId = null; S.dirty = false; S.noteDirty = false; S.confirmMk = false; S.mkMsg = ""; S.confirmClean = false; S.cleanMsg = ""; S.preview = null; S.bdRows = null; S.auditRows = null; S.stats = null; S.thMsg = ""; S.expMsg = ""; S.fallback = null; S.err = ""; S.confirmDel = null; S.listMsg = ""; S.mkRows = null; S.rangeRows = null; render(); }
   else if (act === "open") { audit("act_open", b.dataset.id); S.openId = b.dataset.id; S.dirty = false; S.noteDirty = false; S.confirmMk = false; S.mkMsg = ""; S.expMsg = ""; S.fallback = null; S.thMsg = ""; S.confirmDel = null; S.delErr = ""; S.listMsg = ""; renderStaffBody(); window.scrollTo(0, 0); }
